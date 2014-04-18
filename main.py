@@ -29,7 +29,7 @@ def getScrobbles(page):
 """Gets the last max scrobble date from db"""
 def getMaxDate():
     print 
-    cnxn = pyodbc.connect('DRIVER={PostgreSQL Unicode};SERVER=justinhorner.me;DATABASE=myppgdb',uid=sql_user,PWD=sql_pass)
+    cnxn = pyodbc.connect('DRIVER={PostgreSQL Unicode};SERVER=justinhorner.me;DATABASE=mypgdb;UID=' + sql_user + ';PWD=' + sql_pass)
     cursor = cnxn.cursor()
     rows = cursor.execute('select max(unixtime) from public.lastfm_scrobbles;').fetchone()
     date = rows
