@@ -4,6 +4,6 @@ last_fm_user =
 sql_user = 
 sql_pass = 
 sql_srv = localhost
-sql_db =sql_driver_win = PostgreSQL Unicode(x64)
-sql_driver_nix = PostgreSQL Unicodesql_driver_win = PostgreSQL Unicode(x64)
+sql_db =
+sql_driver_win = PostgreSQL Unicode(x64)
 sql_driver_nix = PostgreSQL Unicode
