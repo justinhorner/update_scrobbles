@@ -1,6 +1,6 @@
 __author__ = 'justinhorner'
 
-import pyodbc
+import psycopg2
 import ConfigParser
 import datetime as DTime
 import requests
@@ -28,7 +28,7 @@ class vars:
     sql_drv = ''
 
 class scrobbles:
-    def __init__(self, unixtime, iso_time, track_name, track_mbid, artist_name, artist_mbid, album_name, album_mbid):
+    def __init__(self, unixtime, iso_time, track_name, track_mbid, artist_name, artist_mbid, album_name, album_mbid, _track_id):
         self.unixtime = unixtime
         self.iso_time = iso_time
         self.track_name = track_name
@@ -37,13 +37,14 @@ class scrobbles:
         self.artist_mbid = artist_mbid
         self.album_name = album_name
         self.album_mbid = album_mbid
+        self._track_id = _track_id
 
 
 def xecute():
     load_config()
     _date = getMaxDate()
     getScrobbles(_date)
-    insertScrobbles()
+    #insertScrobbles()
 
     if _errors.error is '':
         _errors.error = 'No errors, successfully updated scrobbles.'
@@ -54,9 +55,11 @@ def xecute():
     Gets the
 """
 def getScrobbles(_date):
+    global lst
     keep_going = 1
     page = 0
     while keep_going > 0:
+        lst = list()
         keep_going = 0
         page = page + 1
         api_url = 'http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=%s&format=json&page=%s' % (vars.last_fm_user, vars.last_fm_api_key, str(page))
@@ -84,38 +87,81 @@ def getScrobbles(_date):
                         s.album_name = _track['album']['#text']
                         s.album_mbid = _track['album']['mbid']
                         """
-                        s = scrobbles(_track['date']['uts'], _track['date']['#text'], _track['name'], _track['mbid'], _track['artist']['#text'], _track['artist']['mbid'], _track['album']['#text'], _track['album']['mbid'])
+                        s = scrobbles(_track['date']['uts'], _track['date']['#text'], _track['name'], _track['mbid'], _track['artist']['#text'], _track['artist']['mbid'], _track['album']['#text'], _track['album']['mbid'], -1)
                         #lst.append(s)
                         lst.append(s)
                     else:
-                        lst.reverse()
+                        #lst.reverse()
                         return
+            #keep_going = 0
+            insertScrobbles()
         except Exception as e:
             _errors.error += str(e)
 
-
-
 """Gets the last max scrobble date from db"""
 def getMaxDate():
-    cnxn = pyodbc.connect('DRIVER={%s};SERVER=%s;DATABASE=%s;UID=%s;PWD=%s;SSLMODE=require' % (vars.sql_drv, vars.sql_srv, vars.sql_db, vars.sql_user, vars.sql_pass))
+    cnxn = psycopg2.connect(dbname=vars.sql_db, user=vars.sql_user, password=vars.sql_pass, host=vars.sql_srv)
     cursor = cnxn.cursor()
-    rows = cursor.execute('select max(unixtime) from public.lastfm_scrobbles;').fetchone()
-    date = int(rows[0])
+    date = 0
+    try:
+        rows = cursor.execute('select max(scrobble_time) from public.scrobbles;').fetchone()
+        date = int(rows[0])
+    except:
+        print 'missing latest date'
+
+    cursor.close()
+    cnxn.close()
     return date
 
+def insertNonScrobble(_type, name, oid, mbid):
+    cnxn = psycopg2.connect(dbname=vars.sql_db, user=vars.sql_user, password=vars.sql_pass, host=vars.sql_srv)
+    cursor = cnxn.cursor()
+
+    iReturn = -1
+
+    try:
+        if _type == 'artist':
+            cursor.execute('insert into public.scrobbles_artists (name, artist_mbid) select %s, %s where not exists(select * from public.scrobbles_artists where artist_mbid = %s); SELECT max(artist_id) from public.scrobbles_artists;', (name, mbid, mbid))
+        elif _type == 'album':
+            cursor.execute('insert into public.scrobbles_albums (name, artist_id, album_mbid) select %s, %s, %s where not exists(select * from public.scrobbles_albums where album_mbid = %s limit 1); SELECT max(album_id) from public.scrobbles_albums;', (name, oid, mbid, mbid))
+        elif _type == 'track':
+            cursor.execute('insert into public.scrobbles_tracks (name, album_id, track_mbid) select %s, %s, %s where not exists(select * from public.scrobbles_tracks where track_mbid = %s limit 1); SELECT max(track_id) from public.scrobbles_tracks', (name, oid, mbid, mbid))
+
+        cnxn.commit()
+        row = cursor.fetchone()
+        iReturn = row[0]
+        cursor.close()
+        cnxn.close()
+
+    except Exception as e:
+        _errors.error += str(e)
+
+    return iReturn
+
+def insertScrobble(s):
+    cnxn = psycopg2.connect(dbname=vars.sql_db, user=vars.sql_user, password=vars.sql_pass, host=vars.sql_srv)
+    cursor = cnxn.cursor()
+    try:
+        cursor.execute('insert into public.scrobbles (scrobble_time, title, track_id) values (%s, %s, %s)', (s.iso_time, s.track_name, s._track_id))
+        cnxn.commit()
+        cursor.close()
+        cnxn.close()
+    except Exception as e:
+        _errors.error += str(e)
+
 def insertScrobbles():
+    global lst
     if len(lst) > 0:
         try:
-            cnxn = pyodbc.connect('DRIVER={%s};SERVER=%s;DATABASE=%s;UID=%s;PWD=%s;SSLMODE=require' % (vars.sql_drv, vars.sql_srv, vars.sql_db, vars.sql_user, vars.sql_pass))
-            cursor = cnxn.cursor()
-            for l in lst:
-                cursor.execute('insert into public.lastfm_scrobbles (iso_time, unixtime, track_name, track_mbid, artist_name, artist_mbid, album_name, album_mbid) values (?, ?, ?, ?, ?, ?, ?, ?)', l.iso_time, l.unixtime, l.track_name, l.track_mbid, l.artist_name, l.artist_mbid, l.album_name, l.album_mbid)
-                cnxn.commit()
+            for s in lst:
+                artist_id = insertNonScrobble('artist', s.artist_name, -1, s.artist_mbid)
+                album_id = insertNonScrobble('album', s.album_name, artist_id, s.album_mbid)
+                s._track_id = insertNonScrobble('track', s.track_name, album_id, s.track_mbid)
+                insertScrobble(s)
         except Exception as e:
             _errors.error += str(e)
     else:
         _errors.error = 'No new scrobbles, nothing updated'
-
 
 def load_config():
     configParser = ConfigParser.RawConfigParser()
