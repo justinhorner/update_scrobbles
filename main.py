@@ -42,8 +42,9 @@ class scrobbles:
 
 def xecute():
     load_config()
-    _date = getMaxDate()
-    getScrobbles(_date)
+    max_date = getMaxDate()
+    min_date = getMinDate()
+    getScrobbles(max_date, min_date)
     #insertScrobbles()
 
     if _errors.error is '':
@@ -54,7 +55,7 @@ def xecute():
 """
     Gets the
 """
-def getScrobbles(_date):
+def getScrobbles(max_date, min_date):
     global lst
     keep_going = 1
     page = 0
@@ -74,8 +75,9 @@ def getScrobbles(_date):
                 if '@attr' in _track:
                     continue
                 else:
-                    i = int(_track['date']['uts'])
-                    if i > _date:
+                    u = int(_track['date']['uts'])
+                    dtTrack = DTime.datetime.utcfromtimestamp(u)
+                    if dtTrack > max_date:
                         keep_going = 1
                         """
                         s.unixtime = _track['date']['uts']
@@ -90,13 +92,21 @@ def getScrobbles(_date):
                         s = scrobbles(_track['date']['uts'], _track['date']['#text'], _track['name'], _track['mbid'], _track['artist']['#text'], _track['artist']['mbid'], _track['album']['#text'], _track['album']['mbid'], -1)
                         #lst.append(s)
                         lst.append(s)
+                    elif dtTrack < min_date:
+                        keep_going = 1
+                        s = scrobbles(_track['date']['uts'], _track['date']['#text'], _track['name'], _track['mbid'], _track['artist']['#text'], _track['artist']['mbid'], _track['album']['#text'], _track['album']['mbid'], -1)
+                        lst.append(s)
+                    elif dtTrack > min_date:
+                        keep_going = 1
+                        break
                     else:
                         #lst.reverse()
-                        return
+                        #return
+                        break
             #keep_going = 0
             insertScrobbles()
         except Exception as e:
-            _errors.error += str(e)
+            _errors.lst_errors.append(str(e))
 
 """Gets the last max scrobble date from db"""
 def getMaxDate():
@@ -104,62 +114,51 @@ def getMaxDate():
     cursor = cnxn.cursor()
     date = 0
     try:
-        rows = cursor.execute('select max(scrobble_time) from public.scrobbles;').fetchone()
-        date = int(rows[0])
-    except:
+        cursor.execute('select max(scrobble_time_utc) from _scrobbles;')
+        row = cursor.fetchone()
+        date = row[0]
+    except Exception as e:
         print 'missing latest date'
 
     cursor.close()
     cnxn.close()
     return date
 
-def insertNonScrobble(_type, name, oid, mbid):
+
+def getMinDate():
     cnxn = psycopg2.connect(dbname=vars.sql_db, user=vars.sql_user, password=vars.sql_pass, host=vars.sql_srv)
     cursor = cnxn.cursor()
-
-    iReturn = -1
-
+    date = 0
     try:
-        if _type == 'artist':
-            cursor.execute('insert into public.scrobbles_artists (name, artist_mbid) select %s, %s where not exists(select * from public.scrobbles_artists where artist_mbid = %s); SELECT max(artist_id) from public.scrobbles_artists;', (name, mbid, mbid))
-        elif _type == 'album':
-            cursor.execute('insert into public.scrobbles_albums (name, artist_id, album_mbid) select %s, %s, %s where not exists(select * from public.scrobbles_albums where album_mbid = %s limit 1); SELECT max(album_id) from public.scrobbles_albums;', (name, oid, mbid, mbid))
-        elif _type == 'track':
-            cursor.execute('insert into public.scrobbles_tracks (name, album_id, track_mbid) select %s, %s, %s where not exists(select * from public.scrobbles_tracks where track_mbid = %s limit 1); SELECT max(track_id) from public.scrobbles_tracks', (name, oid, mbid, mbid))
-
-        cnxn.commit()
+        cursor.execute('select min(scrobble_time_utc) from _scrobbles;')
         row = cursor.fetchone()
-        iReturn = row[0]
-        cursor.close()
-        cnxn.close()
-
+        date = row[0]
     except Exception as e:
-        _errors.error += str(e)
+        print 'missing latest date'
 
-    return iReturn
+    cursor.close()
+    cnxn.close()
+    return date
 
 def insertScrobble(s):
     cnxn = psycopg2.connect(dbname=vars.sql_db, user=vars.sql_user, password=vars.sql_pass, host=vars.sql_srv)
     cursor = cnxn.cursor()
     try:
-        cursor.execute('insert into public.scrobbles (scrobble_time, title, track_id) values (%s, %s, %s)', (s.iso_time, s.track_name, s._track_id))
+        cursor.execute('insert into public._scrobbles (scrobble_time_utc, title, track_mbid, artist, artist_mbid, album, album_mbid) values (%s, %s, %s, %s, %s, %s, %s);', (s.iso_time, s.track_name, s.track_mbid, s.artist_name, s.artist_mbid, s.album_name, s.album_mbid))
         cnxn.commit()
         cursor.close()
         cnxn.close()
     except Exception as e:
-        _errors.error += str(e)
+        _errors.lst_errors.append(str(e))
 
 def insertScrobbles():
     global lst
     if len(lst) > 0:
         try:
             for s in lst:
-                artist_id = insertNonScrobble('artist', s.artist_name, -1, s.artist_mbid)
-                album_id = insertNonScrobble('album', s.album_name, artist_id, s.album_mbid)
-                s._track_id = insertNonScrobble('track', s.track_name, album_id, s.track_mbid)
                 insertScrobble(s)
         except Exception as e:
-            _errors.error += str(e)
+            _errors.lst_errors.append(str(e))
     else:
         _errors.error = 'No new scrobbles, nothing updated'
 
