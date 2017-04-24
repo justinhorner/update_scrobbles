@@ -59,8 +59,8 @@ def getScrobbles(max_date, min_date):
     global lst
     keep_going = 1
     page = 0
+    lst = list()
     while keep_going > 0:
-        lst = list()
         keep_going = 0
         page = page + 1
         api_url = 'http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=%s&format=json&page=%s' % (vars.last_fm_user, vars.last_fm_api_key, str(page))
@@ -104,9 +104,10 @@ def getScrobbles(max_date, min_date):
                         #return
                         break
             #keep_going = 0
-            insertScrobbles()
+            #insertScrobbles()
         except Exception as e:
             _errors.lst_errors.append(str(e))
+    insertScrobbles()
 
 """Gets the last max scrobble date from db"""
 def getMaxDate():
