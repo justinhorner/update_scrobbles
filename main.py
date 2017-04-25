@@ -141,11 +141,17 @@ def getMinDate():
     cnxn.close()
     return date
 
-def insertScrobble(s):
+def insertScrobble():
+    global lst
     cnxn = psycopg2.connect(dbname=vars.sql_db, user=vars.sql_user, password=vars.sql_pass, host=vars.sql_srv)
     cursor = cnxn.cursor()
     try:
-        cursor.execute('insert into public._scrobbles (scrobble_time_utc, title, track_mbid, artist, artist_mbid, album, album_mbid) values (%s, %s, %s, %s, %s, %s, %s);', (s.iso_time, s.track_name, s.track_mbid, s.artist_name, s.artist_mbid, s.album_name, s.album_mbid))
+        for s in lst:
+            try:
+                #cursor.execute('insert into public._scrobbles (scrobble_time_utc, title, track_mbid, artist, artist_mbid, album, album_mbid) values (%s, %s, %s, %s, %s, %s, %s);', (s.iso_time, s.track_name, s.track_mbid, s.artist_name, s.artist_mbid, s.album_name, s.album_mbid))
+                cursor.execute('insert into public._scrobbles (scrobble_time_utc, title, track_mbid, artist, artist_mbid, album, album_mbid) select %s, %s, %s, %s, %s, %s, %s where not exists (select * from _scrobbles where scrobble_time_utc = %s and title = %s);',(s.iso_time, s.track_name, s.track_mbid, s.artist_name, s.artist_mbid, s.album_name, s.album_mbid, s.iso_time, s.track_name))
+            except Exception as x:
+                str(x)
         cnxn.commit()
         cursor.close()
         cnxn.close()
@@ -156,8 +162,9 @@ def insertScrobbles():
     global lst
     if len(lst) > 0:
         try:
-            for s in lst:
-                insertScrobble(s)
+            # for s in lst:
+            #     insertScrobble(s)
+            insertScrobble()
         except Exception as e:
             _errors.lst_errors.append(str(e))
     else:
